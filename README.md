@@ -10,9 +10,13 @@ block_{number}.txt - Блок с текстом.
 {number} - порядковый номер блока на странице сверху вниз (например form_1)
 
 
-Выделение полужирным: __полужирнывй текст__
+Выделение полужирным: __полужирный текст__
+![image](https://github.com/user-attachments/assets/567e3fa2-5332-4fe8-9838-737a13c30889)
+
 
 Выделение кодом: ```code```
+![image](https://github.com/user-attachments/assets/202c4354-460a-40d9-8d36-67651304de12)
+
 
 Вставка картинки в текст: <{image_name.png}>
 
