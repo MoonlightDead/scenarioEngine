@@ -1,6 +1,7 @@
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import re
+import csv
 
 
 class SimpleWebServer(BaseHTTPRequestHandler):
@@ -29,7 +30,10 @@ class SimpleWebServer(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'text/html')
         self.end_headers()
 
-        files = [f for f in os.listdir() if f.endswith('.txt') and (f.startswith('form_') or f.startswith('block_'))]
+
+        files = [f for f in os.listdir() if f.endswith('.txt') or f.endswith('.csv')]
+        files = [f for f in files if
+                 f.startswith('form_') or f.startswith('block_') or re.match(r'^[^_]+_\d+\.csv$', f)]
 
         def extract_number(filename):
             match = re.search(r'\d+', filename)
@@ -72,6 +76,21 @@ class SimpleWebServer(BaseHTTPRequestHandler):
                 .copy-btn:hover { background: #d0d0d0; }
                 .copy-btn:active { transform: scale(0.95); }
                 p { margin: 0; line-height: 1.2; } /* Уменьшение межстрочного расстояния */
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 10px 0;
+                }
+                table, th, td {
+                    border: 1px solid #ddd;
+                }
+                th, td {
+                    padding: 8px;
+                    text-align: left;
+                }
+                th {
+                    background-color: #f2f2f2;
+                }
 
                 /* Стили для оглавления */
                 #toc {
@@ -112,17 +131,22 @@ class SimpleWebServer(BaseHTTPRequestHandler):
                 <ul>
         """
 
+
         toc_entries = []
         for file in files:
             try:
-                with open(file, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                first_line = content.splitlines()[0] if content else "No Title"
-                block_id = file.replace(".txt", "")
+                if file.endswith('.txt'):
+                    with open(file, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                    first_line = content.splitlines()[0] if content else "No Title"
+                elif file.endswith('.csv'):
+                    first_line = file.split('_')[0]  # Заголовок из имени файла
+                block_id = file.replace(".txt", "").replace(".csv", "")
                 toc_entries.append((block_id, first_line))
             except Exception as e:
                 print(f"Error processing file {file}: {e}")
 
+        # Добавляем пункты оглавления
         for block_id, title in toc_entries:
             html_content += f'<li><a href="#{block_id}">{title}</a></li>'
 
@@ -137,51 +161,74 @@ class SimpleWebServer(BaseHTTPRequestHandler):
 
         for file in files:
             try:
-                with open(file, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
+                block_id = file.replace(".txt", "").replace(".csv", "")
 
-                first_line = content.splitlines()[0] if content else "No Title"
-                block_id = file.replace(".txt", "")
+                if file.endswith('.txt'):
+                    with open(file, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
 
-                if file.startswith('form_'):
-                    html_content += f"<div class='form-content' id='{block_id}' style='background-color: #ED3D3B;'>"
-                    html_content += f"<h3>{first_line}</h3>"
-                    html_content += "<ul class='list-group'>"
-                    for i, line in enumerate(content.splitlines()[1:], start=1):
-                        html_content += f"""
-                        <li class="list-group-item">
-                            <input class="form-check-input me-2" type="checkbox" id="{file}_item{i}" onchange="updateBlockColor('{block_id}')">
-                            <label for="{file}_item{i}">{line}</label>
-                        </li>
-                        """
-                    html_content += "</ul></div>"
-                elif file.startswith('block_'):
+                    first_line = content.splitlines()[0] if content else "No Title"
+
+                    if file.startswith('form_'):
+                        html_content += f"<div class='form-content' id='{block_id}' style='background-color: #ED3D3B;'>"
+                        html_content += f"<h3>{first_line}</h3>"
+                        html_content += "<ul class='list-group'>"
+                        for i, line in enumerate(content.splitlines()[1:], start=1):
+                            html_content += f"""
+                            <li class="list-group-item">
+                                <input class="form-check-input me-2" type="checkbox" id="{file}_item{i}" onchange="updateBlockColor('{block_id}')">
+                                <label for="{file}_item{i}">{line}</label>
+                            </li>
+                            """
+                        html_content += "</ul></div>"
+                    elif file.startswith('block_'):
+                        html_content += f"<div class='block-content' id='{block_id}' style='background-color: #f8f9fa;'>"
+                        html_content += f"<h3>{first_line}</h3>"
+                        processed_content = []
+                        for line in content.splitlines()[1:]:
+                            match = re.search(r'<{(.+?)}>', line)
+                            if match:
+                                image_name = match.group(1)
+                                processed_content.append(f'<img src="/{image_name}" alt="{image_name}" class="img-fluid">')
+                            else:
+                                code_match = re.search(r'```(.*?)```', line, re.DOTALL)
+                                if code_match:
+                                    code_text = code_match.group(1).strip()
+                                    escaped_code_text = code_text.replace("'", "\\'")
+                                    processed_content.append(f"""
+                                    <div class="code-block">
+                                        <button class="copy-btn" onclick="copyToClipboard('{escaped_code_text}')">↪</button>
+                                        <span>{code_text}</span>
+                                    </div>
+                                    """)
+                                else:
+                                    line = re.sub(r'__(.*?)__', r'<strong>\1</strong>', line)
+                                    if line.strip() == "":
+                                        processed_content.append("<p>&nbsp;</p>")
+                                    else:
+                                        processed_content.append(f"<p>{line}</p>")
+                        html_content += "\n".join(processed_content)
+                        html_content += "</div>"
+                elif file.endswith('.csv'):
+                    first_line = file.split('_')[0]
                     html_content += f"<div class='block-content' id='{block_id}' style='background-color: #f8f9fa;'>"
                     html_content += f"<h3>{first_line}</h3>"
-                    processed_content = []
-                    for line in content.splitlines()[1:]:
-                        match = re.search(r'<{(.+?)}>', line)
-                        if match:
-                            image_name = match.group(1)
-                            processed_content.append(f'<img src="/{image_name}" alt="{image_name}" class="img-fluid">')
-                        else:
-                            code_match = re.search(r'```(.*?)```', line, re.DOTALL)
-                            if code_match:
-                                code_text = code_match.group(1).strip()
-                                escaped_code_text = code_text.replace("'", "\\'")
-                                processed_content.append(f"""
-                                <div class="code-block">
-                                    <button class="copy-btn" onclick="copyToClipboard('{escaped_code_text}')">↪</button>
-                                    <span>{code_text}</span>
-                                </div>
-                                """)
-                            else:
-                                line = re.sub(r'__(.*?)__', r'<strong>\1</strong>', line)
-                                if line.strip() == "":
-                                    processed_content.append("<p>&nbsp;</p>")
-                                else:
-                                    processed_content.append(f"<p>{line}</p>")
-                    html_content += "\n".join(processed_content)
+                    with open(file, 'r', encoding='utf-8') as f:
+                        reader = csv.reader(f, delimiter=';')
+                        rows = list(reader)
+                        if rows:
+                            html_content += "<table>"
+                            html_content += "<thead><tr>"
+                            for header in rows[0]:
+                                html_content += f"<th>{header}</th>"
+                            html_content += "</tr></thead>"
+                            html_content += "<tbody>"
+                            for row in rows[1:]:
+                                html_content += "<tr>"
+                                for cell in row:
+                                    html_content += f"<td>{cell}</td>"
+                                html_content += "</tr>"
+                            html_content += "</tbody></table>"
                     html_content += "</div>"
             except Exception as e:
                 print(f"Error processing file {file}: {e}")
